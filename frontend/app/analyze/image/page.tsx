@@ -66,14 +66,16 @@ const IMAGE_DEMOS = {
   job: "Work from home scam requiring upfront registration fee payment.",
 };
 
+type DemoPreset = keyof typeof IMAGE_DEMOS;
+
 export default function ImageAnalyzePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>("");
-  const [selectedDemoPreset, setSelectedDemoPreset] = useState<
-    "safe" | "scam" | "otp" | ""
-  >("");
+  const [selectedDemoPreset, setSelectedDemoPreset] = useState<DemoPreset | "">(
+    "",
+  );
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<ImageAnalysisResult | null>(null);
   const [error, setError] = useState("");
@@ -327,13 +329,13 @@ export default function ImageAnalyzePage() {
     }
   }, [searchParams]);
 
-  const loadDemoImage = async (demoType: string) => {
+  const loadDemoImage = async (demoType: DemoPreset) => {
     try {
       setError("");
       const demoFile = await createDemoFile(demoType);
       setSelectedFile(demoFile);
       setPreviewUrl(URL.createObjectURL(demoFile));
-      setSelectedDemoPreset(demoType as "safe" | "scam" | "otp");
+      setSelectedDemoPreset(demoType);
     } catch (err) {
       console.error("Failed to load demo image:", err);
       setError("Failed to generate demo image. Please try again.");
