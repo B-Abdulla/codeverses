@@ -76,6 +76,9 @@ httpx>=0.25.2
 # Telegram Bot support
 # python-telegram-bot==20.7
 
+# WhatsApp (Twilio)
+twilio==9.3.4
+
 # Language detection (fallback if LibreTranslate unavailable)
 langdetect==1.0.9
 

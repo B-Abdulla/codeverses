@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { VoiceButton } from "@/components/results/VoiceButton";
 
 import { detectScamLanguage } from "@/lib/scamLanguageDetector";
 import { createDemoFile, DEMO_IMAGES } from "@/lib/demoImageGenerator";
@@ -676,6 +677,18 @@ export default function ImageAnalyzePage() {
                       }`}
                       style={{ width: `${result.risk_score}%` }}
                     ></div>
+                  </div>
+
+                  {/* Voice Analysis Button */}
+                  <div className="mb-6">
+                    <VoiceButton
+                      riskScore={result.risk_score}
+                      riskLevel={result.risk_level}
+                      messageType={result.message_type}
+                      fraudTypes={result.scam_type}
+                      isFraud={result.is_spam}
+                      explanation={`Extracted text analyzed for fraud indicators. Grammar score: ${result.grammar_score}/100.`}
+                    />
                   </div>
 
                   {/* Scam Types */}

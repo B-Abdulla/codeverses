@@ -3,8 +3,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useFraudStore } from "@/store/useFraudStore";
+import { useSavedResults } from "@/store/useSavedResults";
 import { RiskMeter } from "@/components/results/RiskMeter";
 import { TextHighlighter } from "@/components/results/TextHighlighter";
+import { VoiceButton } from "@/components/results/VoiceButton";
 import {
   ArrowLeft,
   Loader2,
@@ -34,23 +36,64 @@ import {
   Brain,
   TrendingUp,
   Activity,
+  Save,
 } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 
 export default function ResultsPage() {
   const router = useRouter();
-  const { result, isAnalyzing, inputText } = useFraudStore();
+  const {
+    result: storeResult,
+    isAnalyzing,
+    inputText: storeInputText,
+    setResult: setStoreResult,
+    setInputText: setStoreInputText,
+  } = useFraudStore();
+  const { addResult } = useSavedResults();
   const [copiedSummary, setCopiedSummary] = useState(false);
+  const [resultSaved, setResultSaved] = useState(false);
   const [enhancedGrammarScore, setEnhancedGrammarScore] = useState<number>(0);
   const [linkThreatLevel, setLinkThreatLevel] = useState<string>("Unknown");
   const [advancedRiskFactors, setAdvancedRiskFactors] = useState<any>(null);
+  const [loadedResult, setLoadedResult] = useState<any>(null);
+  const [loadedInputText, setLoadedInputText] = useState<string>("");
+  const [mounted, setMounted] = useState(false);
+  const [checkedStorage, setCheckedStorage] = useState(false);
 
+  // Use either store result or loaded result from sessionStorage
+  const result = storeResult || loadedResult;
+  const inputText = storeInputText || loadedInputText;
+
+  // All hooks must be called unconditionally before any early returns
+
+  // Load saved result from sessionStorage on mount
   useEffect(() => {
-    if (!isAnalyzing && !result && !inputText) {
+    const stored = sessionStorage.getItem("viewResult");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setLoadedResult(parsed.result);
+        setLoadedInputText(parsed.inputText);
+        // Also sync to store for persistence
+        setStoreResult(parsed.result);
+        setStoreInputText(parsed.inputText);
+        sessionStorage.removeItem("viewResult");
+      } catch (e) {
+        console.error("Failed to load saved result:", e);
+      }
+    }
+    // Important: Set these AFTER attempting to load from storage
+    setCheckedStorage(true);
+    setMounted(true);
+  }, [setStoreResult, setStoreInputText]);
+
+  // Redirect only if truly no results available AND we've checked storage
+  useEffect(() => {
+    if (mounted && checkedStorage && !isAnalyzing && !result && !inputText) {
       router.push("/analyze");
     }
-  }, [isAnalyzing, result, inputText, router]);
+  }, [mounted, checkedStorage, isAnalyzing, result, inputText, router]);
 
   // Enhanced Grammar Score Calculation
   useEffect(() => {
@@ -190,60 +233,7 @@ export default function ResultsPage() {
     }
   }, [result, inputText]);
 
-  const handleGoogleCompare = () => {
-    if (!inputText) return;
-
-    // Extract URLs if present
-    const urlPattern = /(https?:\/\/[^\s]+)|(www\.[^\s]+)/gi;
-    const urls = inputText.match(urlPattern) || [];
-
-    let searchQuery = "";
-    if (urls.length > 0) {
-      searchQuery = `is ${urls[0]} fraud scam phishing website malware`;
-    } else {
-      const snippet = inputText.slice(0, 100);
-      searchQuery = `is this message fraud scam phishing: ${snippet}`;
-    }
-
-    window.open(
-      `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
-  };
-
-  if (isAnalyzing) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6">
-        <Loader2 className="w-16 h-16 text-primary animate-spin" />
-        <div>
-          <h2 className="text-2xl font-bold">Analyzing Content...</h2>
-          <p className="text-muted-foreground">
-            Consulting Gemini 1.5 Flash (Multi-Modal) & verifying patterns.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!result) return null;
-
-  // Stagger animation variants
-  const container = {
-    hidden: { opacity: 0 },
-    show: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.1,
-      },
-    },
-  };
-
-  const item = {
-    hidden: { opacity: 0, y: 20 },
-    show: { opacity: 1, y: 0 },
-  };
-
+  // Risk fingerprint - must be computed before early returns
   const riskFingerprint = useMemo(() => {
     if (!result) return "FG-00000000";
     const raw = `${result.risk_score}|${result.risk_level}|${result.message_type}|${(result.fraud_type || []).join("|")}`;
@@ -259,6 +249,39 @@ export default function ResultsPage() {
       .slice(0, 8);
     return `FG-${token}`;
   }, [result]);
+
+  // Early returns - MUST be after all hooks, before any handlers
+  if (!mounted || !checkedStorage) {
+    return null;
+  }
+
+  if (isAnalyzing) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6">
+        <Loader2 className="w-16 h-16 text-primary animate-spin" />
+        <div>
+          <h2 className="text-2xl font-bold">Analyzing Content...</h2>
+          <p className="text-muted-foreground">
+            Consulting Gemini 1.5 Flash (Multi-Modal) & verifying patterns.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!result) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6">
+        <AlertTriangle className="w-16 h-16 text-warning" />
+        <div>
+          <h2 className="text-2xl font-bold">No Results Found</h2>
+          <p className="text-muted-foreground">
+            Please analyze some content first.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const handleCopySummary = async () => {
     if (!result) return;
@@ -298,6 +321,64 @@ export default function ResultsPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleGoogleCompare = () => {
+    if (!inputText) return;
+
+    // Extract URLs if present
+    const urlPattern = /(https?:\/\/[^\s]+)|(www\.[^\s]+)/gi;
+    const urls = inputText.match(urlPattern) || [];
+
+    let searchQuery = "";
+    if (urls.length > 0) {
+      searchQuery = `is ${urls[0]} fraud scam phishing website malware`;
+    } else {
+      const snippet = inputText.slice(0, 100);
+      searchQuery = `is this message fraud scam phishing: ${snippet}`;
+    }
+
+    window.open(
+      `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  };
+
+  const handleSaveResult = () => {
+    if (!result || !inputText) return;
+
+    // Determine analysis type based on message_type or content
+    let analysisType: "text" | "link" | "email" | "image" = "text";
+    const messageType = String(result.message_type || "").toLowerCase();
+
+    if (messageType.includes("email") || messageType.includes("sender")) {
+      analysisType = "email";
+    } else if (messageType.includes("link") || messageType.includes("url")) {
+      analysisType = "link";
+    } else if (messageType.includes("image") || messageType.includes("ocr")) {
+      analysisType = "image";
+    }
+
+    addResult(inputText, result, analysisType);
+    setResultSaved(true);
+    setTimeout(() => setResultSaved(false), 2500);
+  };
+
+  // Stagger animation variants
+  const container = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1,
+      },
+    },
+  };
+
+  const item = {
+    hidden: { opacity: 0, y: 20 },
+    show: { opacity: 1, y: 0 },
+  };
+
   return (
     <motion.div
       variants={container}
@@ -326,6 +407,26 @@ export default function ResultsPage() {
 
         {result && (
           <div className="flex flex-wrap items-center gap-2">
+            <VoiceButton
+              riskScore={result.risk_score}
+              riskLevel={String(result.risk_level)}
+              messageType={String(result.message_type)}
+              fraudTypes={result.fraud_type || []}
+              isFraud={result.is_fraud}
+              explanation={result.explanation}
+            />
+            <button
+              onClick={handleSaveResult}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                resultSaved
+                  ? "bg-green-600 hover:bg-green-700 text-white shadow-md"
+                  : "border border-border bg-card hover:bg-muted/60"
+              }`}
+              title="Save this analysis to history"
+            >
+              <Save className="w-4 h-4" />
+              {resultSaved ? "Saved ✓" : "Save Result"}
+            </button>
             <button
               onClick={handleGoogleCompare}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-all shadow-md hover:shadow-lg"
@@ -529,7 +630,7 @@ export default function ResultsPage() {
                     {result.author_prediction}
                   </span>
                 )}
-                {result.fraud_type.map((ft, i) => (
+                {result.fraud_type.map((ft: string, i: number) => (
                   <span
                     key={i}
                     className="px-4 py-2 rounded-full bg-muted/60 text-foreground text-xs font-bold uppercase border border-border/50 transition-all hover:border-primary/40"
@@ -953,9 +1054,9 @@ export default function ResultsPage() {
                 </h4>
                 <ul className="text-xs space-y-1 text-green-700 dark:text-green-400">
                   {result.counterfactual_safe_conditions?.length > 0 ? (
-                    result.counterfactual_safe_conditions.map((item, i) => (
-                      <li key={i}>• {item}</li>
-                    ))
+                    result.counterfactual_safe_conditions.map(
+                      (item: any, i: number) => <li key={i}>• {item}</li>,
+                    )
                   ) : (
                     <li>No suggestions available.</li>
                   )}
@@ -967,7 +1068,9 @@ export default function ResultsPage() {
                 </h4>
                 <ul className="text-xs space-y-1 text-red-700 dark:text-red-400">
                   {result.why_fraud?.length > 0 ? (
-                    result.why_fraud.map((s, i) => <li key={i}>• {s}</li>)
+                    result.why_fraud.map((s: string, i: number) => (
+                      <li key={i}>• {s}</li>
+                    ))
                   ) : (
                     <li>No specific risks listed.</li>
                   )}
@@ -1009,126 +1112,132 @@ export default function ResultsPage() {
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {result.detected_signals &&
-                Object.entries(result.detected_signals).map(([key, value]) => {
-                  const signalConfig: Record<
-                    string,
-                    { icon: React.ReactNode; label: string; desc: string }
-                  > = {
-                    urgency: {
-                      icon: (
-                        <AlertTriangle className="w-4 h-4 text-orange-500" />
-                      ),
-                      label: "Urgency/Pressure",
-                      desc: "Forces immediate action",
-                    },
-                    financial_lure: {
-                      icon: <Sparkles className="w-4 h-4 text-yellow-500" />,
-                      label: "Financial Lure",
-                      desc: "Promises of money or prizes",
-                    },
-                    impersonation: {
-                      icon: <ShieldCheck className="w-4 h-4 text-blue-500" />,
-                      label: "Impersonation",
-                      desc: "Pretends to be authority",
-                    },
-                    credential_theft: {
-                      icon: <Smartphone className="w-4 h-4 text-purple-500" />,
-                      label: "Credential Theft",
-                      desc: "Asks for OTP/Passwords",
-                    },
-                    suspicious_url: {
-                      icon: <Paperclip className="w-4 h-4 text-red-500" />,
-                      label: "Suspicious Link",
-                      desc: "Contains shady/shortened URLs",
-                    },
-                    ai_generated_tone: {
-                      icon: <Scan className="w-4 h-4 text-indigo-500" />,
-                      label: "AI Scripted",
-                      desc: "Uses robotic templates",
-                    },
-                    spelling_grammar_issues: {
-                      icon: <SpellCheck className="w-4 h-4 text-orange-500" />,
-                      label: "Spelling Errors",
-                      desc: "Contains intentional typos",
-                    },
-                    social_engineering: {
-                      icon: <Eye className="w-4 h-4 text-cyan-500" />,
-                      label: "Social Engineering",
-                      desc: "Emotional manipulation",
-                    },
-                    crypto_investment_pitch: {
-                      icon: <Database className="w-4 h-4 text-green-500" />,
-                      label: "Crypto Pitch",
-                      desc: "Guaranteed ROI/BTC mentions",
-                    },
-                    threat_extortion: {
-                      icon: <AlertOctagon className="w-4 h-4 text-red-600" />,
-                      label: "Extortion Threat",
-                      desc: "Blackmail or data leak threats",
-                    },
-                    job_scam: {
-                      icon: <AlignLeft className="w-4 h-4 text-sky-500" />,
-                      label: "Fake Job Offer",
-                      desc: "Employment lures & upfront fees",
-                    },
-                    spam_marketing: {
-                      icon: <Mail className="w-4 h-4 text-slate-500" />,
-                      label: "Spam Marketing",
-                      desc: "Unsolicited promotional bulk",
-                    },
-                    regional_upi_fraud: {
-                      icon: <Sparkles className="w-4 h-4 text-emerald-500" />,
-                      label: "UPI/CashApp Fraud",
-                      desc: "Localized payment requests",
-                    },
-                    tech_support_refund: {
-                      icon: <Scan className="w-4 h-4 text-teal-500" />,
-                      label: "Tech Support/Refund",
-                      desc: "Fake overpayment refunds",
-                    },
-                  };
+                Object.entries(result.detected_signals).map(
+                  ([key, value]: [string, unknown]) => {
+                    const signalConfig: Record<
+                      string,
+                      { icon: React.ReactNode; label: string; desc: string }
+                    > = {
+                      urgency: {
+                        icon: (
+                          <AlertTriangle className="w-4 h-4 text-orange-500" />
+                        ),
+                        label: "Urgency/Pressure",
+                        desc: "Forces immediate action",
+                      },
+                      financial_lure: {
+                        icon: <Sparkles className="w-4 h-4 text-yellow-500" />,
+                        label: "Financial Lure",
+                        desc: "Promises of money or prizes",
+                      },
+                      impersonation: {
+                        icon: <ShieldCheck className="w-4 h-4 text-blue-500" />,
+                        label: "Impersonation",
+                        desc: "Pretends to be authority",
+                      },
+                      credential_theft: {
+                        icon: (
+                          <Smartphone className="w-4 h-4 text-purple-500" />
+                        ),
+                        label: "Credential Theft",
+                        desc: "Asks for OTP/Passwords",
+                      },
+                      suspicious_url: {
+                        icon: <Paperclip className="w-4 h-4 text-red-500" />,
+                        label: "Suspicious Link",
+                        desc: "Contains shady/shortened URLs",
+                      },
+                      ai_generated_tone: {
+                        icon: <Scan className="w-4 h-4 text-indigo-500" />,
+                        label: "AI Scripted",
+                        desc: "Uses robotic templates",
+                      },
+                      spelling_grammar_issues: {
+                        icon: (
+                          <SpellCheck className="w-4 h-4 text-orange-500" />
+                        ),
+                        label: "Spelling Errors",
+                        desc: "Contains intentional typos",
+                      },
+                      social_engineering: {
+                        icon: <Eye className="w-4 h-4 text-cyan-500" />,
+                        label: "Social Engineering",
+                        desc: "Emotional manipulation",
+                      },
+                      crypto_investment_pitch: {
+                        icon: <Database className="w-4 h-4 text-green-500" />,
+                        label: "Crypto Pitch",
+                        desc: "Guaranteed ROI/BTC mentions",
+                      },
+                      threat_extortion: {
+                        icon: <AlertOctagon className="w-4 h-4 text-red-600" />,
+                        label: "Extortion Threat",
+                        desc: "Blackmail or data leak threats",
+                      },
+                      job_scam: {
+                        icon: <AlignLeft className="w-4 h-4 text-sky-500" />,
+                        label: "Fake Job Offer",
+                        desc: "Employment lures & upfront fees",
+                      },
+                      spam_marketing: {
+                        icon: <Mail className="w-4 h-4 text-slate-500" />,
+                        label: "Spam Marketing",
+                        desc: "Unsolicited promotional bulk",
+                      },
+                      regional_upi_fraud: {
+                        icon: <Sparkles className="w-4 h-4 text-emerald-500" />,
+                        label: "UPI/CashApp Fraud",
+                        desc: "Localized payment requests",
+                      },
+                      tech_support_refund: {
+                        icon: <Scan className="w-4 h-4 text-teal-500" />,
+                        label: "Tech Support/Refund",
+                        desc: "Fake overpayment refunds",
+                      },
+                    };
 
-                  const config = signalConfig[key] || {
-                    icon: <Info className="w-4 h-4" />,
-                    label: key.replace(/_/g, " "),
-                    desc: "Signal detected",
-                  };
+                    const config = signalConfig[key] || {
+                      icon: <Info className="w-4 h-4" />,
+                      label: key.replace(/_/g, " "),
+                      desc: "Signal detected",
+                    };
 
-                  return (
-                    <motion.div
-                      variants={item}
-                      key={key}
-                      className={`flex items-start gap-3 p-3 rounded-xl border transition-all ${
-                        value
-                          ? "bg-red-50/50 border-red-200 dark:bg-red-900/10 dark:border-red-900/30"
-                          : "bg-muted/20 border-border opacity-60 hover:opacity-100"
-                      }`}
-                    >
-                      <div
-                        className={`mt-0.5 p-1.5 rounded-full ${value ? "bg-white shadow-sm dark:bg-slate-800" : "bg-transparent"}`}
+                    return (
+                      <motion.div
+                        variants={item}
+                        key={key}
+                        className={`flex items-start gap-3 p-3 rounded-xl border transition-all ${
+                          value
+                            ? "bg-red-50/50 border-red-200 dark:bg-red-900/10 dark:border-red-900/30"
+                            : "bg-muted/20 border-border opacity-60 hover:opacity-100"
+                        }`}
                       >
-                        {config.icon}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex justify-between items-center mb-0.5">
-                          <h4
-                            className={`text-sm font-bold ${value ? "text-red-900 dark:text-red-300" : "text-foreground"}`}
-                          >
-                            {config.label}
-                          </h4>
-                          {value && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 bg-red-100 text-red-600 rounded uppercase tracking-wide">
-                              Detected
-                            </span>
-                          )}
+                        <div
+                          className={`mt-0.5 p-1.5 rounded-full ${value ? "bg-white shadow-sm dark:bg-slate-800" : "bg-transparent"}`}
+                        >
+                          {config.icon}
                         </div>
-                        <p className="text-xs text-muted-foreground leading-tight">
-                          {config.desc}
-                        </p>
-                      </div>
-                    </motion.div>
-                  );
-                })}
+                        <div className="flex-1">
+                          <div className="flex justify-between items-center mb-0.5">
+                            <h4
+                              className={`text-sm font-bold ${value ? "text-red-900 dark:text-red-300" : "text-foreground"}`}
+                            >
+                              {config.label}
+                            </h4>
+                            {!!value && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 bg-red-100 text-red-600 rounded uppercase tracking-wide">
+                                Detected
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-tight">
+                            {config.desc}
+                          </p>
+                        </div>
+                      </motion.div>
+                    );
+                  },
+                )}
             </div>
           </motion.div>
 

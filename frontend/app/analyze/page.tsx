@@ -128,9 +128,9 @@ export default function AnalyzePage() {
 
       setTimeout(() => {
         setResult(data);
-        router.push("/results");
-        setIsLoading(false);
         setIsAnalyzing(false);
+        setIsLoading(false);
+        router.push("/results");
       }, 2000);
     } catch (e) {
       console.error(e);

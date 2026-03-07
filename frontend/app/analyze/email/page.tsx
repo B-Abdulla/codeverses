@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { VoiceButton } from "@/components/results/VoiceButton";
 
 import { detectScamLanguage } from "@/lib/scamLanguageDetector";
 import {
@@ -432,6 +433,21 @@ export default function EmailAnalyzePage() {
                   }`}
                   style={{ width: `${result.risk_score}%` }}
                 ></div>
+              </div>
+
+              {/* Voice Analysis Button */}
+              <div className="mb-6">
+                <VoiceButton
+                  riskScore={result.risk_score}
+                  riskLevel={result.risk_level}
+                  messageType={result.message_type}
+                  fraudTypes={result.scam_type}
+                  isFraud={result.is_spam}
+                  explanation={
+                    result.sender_analysis?.reason ||
+                    "Email analyzed for fraud indicators"
+                  }
+                />
               </div>
 
               {/* Scam Types */}
